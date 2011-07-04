@@ -1,58 +1,61 @@
 package net.llamaslayers.minecraft.longsummerdays;
 
 import java.util.HashMap;
+import java.util.Map;
 
 import org.bukkit.World;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.util.config.ConfigurationNode;
 
 public class LongSummerDays extends JavaPlugin implements Runnable {
-	private static final long SUNRISE = 4200;
-	private static final long DAYTIME = 6000;
-	private static final long SUNSET = 18000;
-	private static final long NIGHTTIME = 19800;
+	private static final long DAYTIME = 0;
+	private static final long SUNSET = 12000;
+	private static final long NIGHTTIME = 14000;
+	private static final long SUNRISE = 22000;
+	private static final long TOMORROW = 24000;
 
 	@Override
 	public void onDisable() {
 	}
 
-	protected HashMap<World, Long> worlds;
+	protected HashMap<String, Long> worlds;
 
 	@Override
 	public void onEnable() {
 		checkConfig();
 
-		getServer().getLogger().info(
-				"[Long Summer Days] Sunrise will last about "
-						+ Math.max(
-								0,
-								(int) (getConfiguration().getDouble(
-										"multipliers.sunrise", 2.0) * 1.5))
-						+ " minutes.");
-		getServer().getLogger().info(
-				"[Long Summer Days] Daytime will last about "
-						+ Math.max(
-								0,
-								(int) (getConfiguration().getDouble(
-										"multipliers.daytime", 1.0) * 10))
-						+ " minutes.");
-		getServer().getLogger().info(
-				"[Long Summer Days] Sunset will last about "
-						+ Math.max(
-								0,
-								(int) (getConfiguration().getDouble(
-										"multipliers.sunset", 2.0) * 1.5))
-						+ " minutes.");
-		getServer().getLogger().info(
-				"[Long Summer Days] Nighttime will last about "
-						+ Math.max(
-								0,
-								(int) (getConfiguration().getDouble(
-										"multipliers.nighttime", 0.5) * 7))
-						+ " minutes.");
-
-		worlds = new HashMap<World, Long>();
+		worlds = new HashMap<String, Long>();
 		for (World world : getServer().getWorlds()) {
-			worlds.put(world, world.getFullTime());
+			worlds.put(world.getName(), world.getFullTime());
+
+			getServer().getLogger().info(
+					"[Long Summer Days] Sunrise for "
+							+ world.getName()
+							+ " will last about "
+							+ (int) Math.max(0,
+									getMultiplier(world, SUNRISE) * 1.5)
+							+ " minutes.");
+			getServer().getLogger().info(
+					"[Long Summer Days] Daytime for "
+							+ world.getName()
+							+ " will last about "
+							+ (int) Math.max(0,
+									getMultiplier(world, DAYTIME) * 10)
+							+ " minutes.");
+			getServer().getLogger().info(
+					"[Long Summer Days] Sunset for "
+							+ world.getName()
+							+ " will last about "
+							+ (int) Math.max(0,
+									getMultiplier(world, SUNSET) * 1.5)
+							+ " minutes.");
+			getServer().getLogger().info(
+					"[Long Summer Days] Nighttime for "
+							+ world.getName()
+							+ " will last about "
+							+ (int) Math.max(0,
+									getMultiplier(world, NIGHTTIME) * 7)
+							+ " minutes.");
 		}
 		getServer().getScheduler().scheduleSyncRepeatingTask(this, this, 1, 1);
 	}
@@ -67,48 +70,62 @@ public class LongSummerDays extends JavaPlugin implements Runnable {
 						"# exactly the same amount of time as real days.", "");
 		getConfiguration().setProperty("multipliers.sunrise",
 				getConfiguration().getDouble("multipliers.sunrise", 2.0));
-		getConfiguration().setProperty("multipliers.sunset",
-				getConfiguration().getDouble("multipliers.sunset", 2.0));
 		getConfiguration().setProperty("multipliers.daytime",
 				getConfiguration().getDouble("multipliers.daytime", 1.0));
+		getConfiguration().setProperty("multipliers.sunset",
+				getConfiguration().getDouble("multipliers.sunset", 2.0));
 		getConfiguration().setProperty("multipliers.nighttime",
 				getConfiguration().getDouble("multipliers.nighttime", 0.5));
+		Map<String, ConfigurationNode> worldConfig = getConfiguration()
+				.getNodes("worlds");
+		if (worldConfig == null || worldConfig.size() == 0) {
+			getConfiguration()
+					.setProperty("worlds.always_daytime.sunrise", 2.5);
+			getConfiguration()
+					.setProperty("worlds.always_daytime.daytime", 5.0);
+			getConfiguration().setProperty("worlds.always_daytime.sunset", 2.5);
+			getConfiguration().setProperty("worlds.always_daytime.nighttime",
+					0.0);
+		}
 		getConfiguration().save();
 	}
 
 	@Override
 	public void run() {
 		for (World world : getServer().getWorlds()) {
-			if (!worlds.containsKey(world)) {
-				worlds.put(world, world.getFullTime());
+			if (!worlds.containsKey(world.getName())) {
+				worlds.put(world.getName(), world.getFullTime());
 				continue;
 			}
-			long oldTime = worlds.get(world);
-			worlds.put(world, world.getFullTime());
+			long oldTime = worlds.get(world.getName());
 			long timeDiff = world.getFullTime() - oldTime;
+
+			if (timeDiff == 0) {
+				continue;
+			}
+
 			double multiplier;
 			long end;
 			if (isSunrise(oldTime)) {
-				multiplier = getConfiguration().getDouble(
-						"multipliers.sunrise", 2.0);
+				multiplier = getMultiplier(world, SUNRISE);
 				end = DAYTIME;
 			} else if (isSunset(oldTime)) {
-				multiplier = getConfiguration().getDouble("multipliers.sunset",
-						2.0);
+				multiplier = getMultiplier(world, SUNSET);
 				end = NIGHTTIME;
 			} else if (isDaytime(oldTime)) {
-				multiplier = getConfiguration().getDouble(
-						"multipliers.daytime", 1.0);
+				multiplier = getMultiplier(world, DAYTIME);
 				end = SUNSET;
 			} else {
-				multiplier = getConfiguration().getDouble(
-						"multipliers.nighttime", 0.5);
+				multiplier = getMultiplier(world, NIGHTTIME);
 				end = SUNRISE;
 			}
 			if (multiplier <= 0) {
 				world.setTime(end);
+				worlds.put(world.getName(), (oldTime / 24000) * 24000 + end);
 			} else {
-				world.setTime(oldTime + (long) (timeDiff / multiplier));
+				world.setFullTime(oldTime + (long) (timeDiff / multiplier));
+				worlds.put(world.getName(), oldTime
+						+ (long) (timeDiff / multiplier));
 			}
 		}
 	}
@@ -120,11 +137,34 @@ public class LongSummerDays extends JavaPlugin implements Runnable {
 
 	private boolean isSunrise(long time) {
 		long today = time % 24000;
-		return today >= SUNRISE && today < DAYTIME;
+		return today >= SUNRISE && today < TOMORROW;
 	}
 
 	private boolean isSunset(long time) {
 		long today = time % 24000;
 		return today >= SUNSET && today < NIGHTTIME;
+	}
+
+	private double getMultiplier(World world, long type) {
+		String worldName = world == null ? "" : world.getName();
+		switch ((int) type) {
+		case (int) SUNRISE:
+			return getConfiguration().getDouble(
+					"worlds." + worldName + ".sunrise",
+					getConfiguration().getDouble("multipliers.sunrise", 2.0));
+		case (int) DAYTIME:
+			return getConfiguration().getDouble(
+					"worlds." + worldName + ".daytime",
+					getConfiguration().getDouble("multipliers.daytime", 1.0));
+		case (int) SUNSET:
+			return getConfiguration().getDouble(
+					"worlds." + worldName + ".sunset",
+					getConfiguration().getDouble("multipliers.sunset", 2.0));
+		case (int) NIGHTTIME:
+			return getConfiguration().getDouble(
+					"worlds." + worldName + ".nighttime",
+					getConfiguration().getDouble("multipliers.nighttime", 0.5));
+		}
+		return Double.NaN;
 	}
 }
