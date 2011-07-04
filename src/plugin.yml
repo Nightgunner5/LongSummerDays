@@ -1,0 +1,4 @@
+name: Long Summer Days
+main: net.llamaslayers.minecraft.longsummerdays.LongSummerDays
+version: 0.1
+description: Make parts of the Minecraft day last different amounts of time than normal.
