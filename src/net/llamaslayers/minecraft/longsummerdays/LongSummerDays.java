@@ -72,9 +72,11 @@ public class LongSummerDays extends JavaPlugin implements Runnable {
 						"# all multipliers to 72 makes Minecraft days take almost",
 						"# exactly the same amount of time as real days.",
 						"#",
-						"# The multipliers section is defaults. If you have multiple",
-						"# worlds that should have the same multipliers, use that instead",
-						"# of setting each of them in the worlds section.", "");
+						"# \"always_daytime\" is an example world. You may either input",
+						"# your own worlds instead of \"always_daytime,\" or use the",
+						"# multipliers, which affect every world not listed under",
+						"# \"worlds:\". Any world listed under \"worlds:\" will not be",
+						"# affected by the multipliers.", "");
 		getConfiguration().setProperty("multipliers.sunrise",
 				getConfiguration().getDouble("multipliers.sunrise", 2.0));
 		getConfiguration().setProperty("multipliers.daytime",
