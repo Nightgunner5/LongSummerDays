@@ -13,6 +13,9 @@ public class LongSummerDays extends JavaPlugin implements Runnable {
 	private static final long NIGHTTIME = 14000;
 	private static final long SUNRISE = 22000;
 	private static final long TOMORROW = 24000;
+	// If time changes by more than an hour in a single tick, ignore it as someone
+	// probably used the /time command.
+	private static final long THRESHOLD = 1000;
 
 	@Override
 	public void onDisable() {
@@ -67,7 +70,11 @@ public class LongSummerDays extends JavaPlugin implements Runnable {
 						"# multiplier means that that piece of the day will be longer.",
 						"# A multiplier of 1 makes time pass at a normal rate. Setting",
 						"# all multipliers to 72 makes Minecraft days take almost",
-						"# exactly the same amount of time as real days.", "");
+						"# exactly the same amount of time as real days.",
+						"#",
+						"# The multipliers section is defaults. If you have multiple",
+						"# worlds that should have the same multipliers, use that instead",
+						"# of setting each of them in the worlds section.", "");
 		getConfiguration().setProperty("multipliers.sunrise",
 				getConfiguration().getDouble("multipliers.sunrise", 2.0));
 		getConfiguration().setProperty("multipliers.daytime",
@@ -104,28 +111,34 @@ public class LongSummerDays extends JavaPlugin implements Runnable {
 				continue;
 			}
 
+			if (timeDiff > THRESHOLD) {
+				continue;
+			}
+
 			double multiplier;
 			long end;
+			long date = oldTime / 24000 * 24000;
 			if (isSunrise(oldTime)) {
 				multiplier = getMultiplier(world, SUNRISE);
-				end = DAYTIME;
+				end = date + DAYTIME;
 			} else if (isSunset(oldTime)) {
 				multiplier = getMultiplier(world, SUNSET);
-				end = NIGHTTIME;
+				end = date + NIGHTTIME;
 			} else if (isDaytime(oldTime)) {
 				multiplier = getMultiplier(world, DAYTIME);
-				end = SUNSET;
+				end = date + SUNSET;
 			} else {
 				multiplier = getMultiplier(world, NIGHTTIME);
-				end = SUNRISE;
+				end = date + SUNRISE;
 			}
 			if (multiplier <= 0) {
-				world.setTime(end);
-				worlds.put(world.getName(), (oldTime / 24000) * 24000 + end);
+				world.setFullTime(end);
+				worlds.put(world.getName(), end);
 			} else {
-				world.setFullTime(oldTime + (long) (timeDiff / multiplier));
-				worlds.put(world.getName(), oldTime
+				long newTime = Math.min(end, oldTime
 						+ (long) (timeDiff / multiplier));
+				world.setFullTime(newTime);
+				worlds.put(world.getName(), newTime);
 			}
 		}
 	}
