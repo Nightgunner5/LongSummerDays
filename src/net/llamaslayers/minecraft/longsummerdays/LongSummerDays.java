@@ -2,8 +2,10 @@ package net.llamaslayers.minecraft.longsummerdays;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Random;
 
 import org.bukkit.World;
+import org.bukkit.craftbukkit.CraftWorld;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.config.ConfigurationNode;
 
@@ -16,18 +18,26 @@ public class LongSummerDays extends JavaPlugin implements Runnable {
 	// If time changes by more than an hour in a single tick, ignore it as someone
 	// probably used the /time command.
 	private static final long THRESHOLD = 1000;
+	private static final Random random = new Random();
 
 	@Override
 	public void onDisable() {
 	}
 
 	protected HashMap<String, Long> worlds;
+	protected HashMap<String, Long> leftover;
+	protected HashMap<String, Long> fullTicks;
+	protected HashMap<String, Long> specialTicks;
+	protected HashMap<String, Integer> specialMode;
 
 	@Override
 	public void onEnable() {
 		checkConfig();
 
 		worlds = new HashMap<String, Long>();
+		leftover = new HashMap<String, Long>();
+		specialTicks = new HashMap<String, Long>();
+		specialMode = new HashMap<String, Integer>();
 		for (World world : getServer().getWorlds()) {
 			worlds.put(world.getName(), world.getFullTime());
 
@@ -102,24 +112,73 @@ public class LongSummerDays extends JavaPlugin implements Runnable {
 	@Override
 	public void run() {
 		for (World world : getServer().getWorlds()) {
+			if (getConfiguration().getBoolean("redstonefix", true)) {
+				// Was it really this simple? Only people complaining about problems will tell.
+				((CraftWorld) world).getHandle().a(true);
+			}
+
 			if (!worlds.containsKey(world.getName())) {
 				worlds.put(world.getName(), world.getFullTime());
 				continue;
 			}
 			long oldTime = worlds.get(world.getName());
 			long timeDiff = world.getFullTime() - oldTime;
+			if (leftover.containsKey(world.getName())) {
+				timeDiff += leftover.get(world.getName());
+			}
 
 			if (timeDiff == 0) {
 				continue;
 			}
 
 			if (timeDiff > THRESHOLD) {
+				worlds.put(world.getName(), world.getFullTime());
 				continue;
 			}
 
 			double multiplier;
 			long end;
 			long date = oldTime / 24000 * 24000;
+			if (date + 24000 < oldTime + timeDiff) {
+				checkForRandomOccurance(world);
+			}
+			if (specialMode.containsKey(world.getName())) {
+				if (!specialTicks.containsKey(world.getName())
+						|| specialTicks.get(world.getName()) <= 1) {
+					specialTicks.remove(world.getName());
+					specialMode.remove(world.getName());
+				} else {
+					specialTicks.put(world.getName(),
+							specialTicks.get(world.getName()) - 1);
+					long newTime = 0;
+					switch (specialMode.get(world.getName())) {
+					case 1: // Blood moon - Only nighttime for 24h
+						newTime = date
+								+ (long) (NIGHTTIME - (SUNRISE - NIGHTTIME)
+										* -specialTicks.get(world.getName())
+												.doubleValue()
+										/ fullTicks.get(world.getName())
+												.doubleValue());
+						break;
+					case 2: // All day - Only daytime for 24h - NEEDS A BETTER COMMANDO NAME
+						newTime = date
+								+ (long) (DAYTIME - (SUNSET - DAYTIME)
+										* -specialTicks.get(world.getName())
+												.doubleValue()
+										/ fullTicks.get(world.getName())
+												.doubleValue());
+						break;
+					default:
+						throw (RuntimeException) new RuntimeException(
+								"Unknown special mode "
+										+ specialMode.get(world.getName()))
+								.fillInStackTrace();
+					}
+					world.setFullTime(newTime);
+					worlds.put(world.getName(), newTime);
+					return;
+				}
+			}
 			if (isSunrise(oldTime)) {
 				multiplier = getMultiplier(world, SUNRISE);
 				end = date + DAYTIME;
@@ -136,11 +195,66 @@ public class LongSummerDays extends JavaPlugin implements Runnable {
 			if (multiplier <= 0) {
 				world.setFullTime(end);
 				worlds.put(world.getName(), end);
+				leftover.put(world.getName(), 0L);
 			} else {
-				long newTime = Math.min(end, oldTime
-						+ (long) (timeDiff / multiplier));
-				world.setFullTime(newTime);
-				worlds.put(world.getName(), newTime);
+				if (timeDiff > 1 / multiplier) {
+					long newTime = Math.min(end, oldTime
+							+ (long) (timeDiff / multiplier));
+					leftover.put(world.getName(), newTime == end ? 0
+							: (timeDiff % Math.max(1, (long) (1 / multiplier))));
+					world.setFullTime(newTime);
+					worlds.put(world.getName(), newTime);
+				} else {
+					world.setFullTime(oldTime);
+					worlds.put(world.getName(), oldTime);
+					leftover.put(world.getName(), timeDiff);
+				}
+			}
+		}
+	}
+
+	private void checkForRandomOccurance(World world) {
+		String worldName = world == null ? "" : world.getName();
+		int chances[] = new int[2];
+		int totalChance = 0;
+		int bloodMoonChance = getConfiguration().getInt(
+				"worlds." + worldName + ".bloodmoonchance", 0);
+		if (bloodMoonChance > 0) {
+			chances[0] = bloodMoonChance;
+			totalChance += bloodMoonChance;
+		}
+		int allDayChance = getConfiguration().getInt(
+				"worlds." + worldName + ".alldaychance", 0);
+		if (allDayChance > 0) {
+			chances[1] = allDayChance;
+			totalChance += allDayChance;
+		}
+
+		if (totalChance > 0) {
+			int chosenChance = random.nextInt(totalChance);
+			for (int i = 0; i < chances.length; i++) {
+				if (chances[i] == 0) {
+					continue;
+				}
+				if (chosenChance == 0) {
+					specialTicks
+							.put(worldName,
+									(long) (1800
+											* (getMultiplier(world, SUNRISE) + getMultiplier(
+													world, SUNSET)) + 12000
+											* getMultiplier(world, DAYTIME) + 8400 * getMultiplier(
+											world, NIGHTTIME)));
+					fullTicks
+							.put(worldName,
+									(long) (1800
+											* (getMultiplier(world, SUNRISE) + getMultiplier(
+													world, SUNSET)) + 12000
+											* getMultiplier(world, DAYTIME) + 8400 * getMultiplier(
+											world, NIGHTTIME)));
+					specialMode.put(worldName, i + 1);
+					break;
+				}
+				chosenChance -= chances[i];
 			}
 		}
 	}
@@ -162,6 +276,14 @@ public class LongSummerDays extends JavaPlugin implements Runnable {
 
 	private double getMultiplier(World world, long type) {
 		String worldName = world == null ? "" : world.getName();
+		if (getConfiguration().getBoolean("worlds." + worldName + ".realistic",
+				false))
+			return getRealisticMultiplier(
+					type,
+					getConfiguration().getDouble(
+							"worlds." + worldName + ".latitude", 0.0),
+					getConfiguration().getDouble(
+							"worlds." + worldName + ".longitude", 0.0));
 		switch ((int) type) {
 		case (int) SUNRISE:
 			return getConfiguration().getDouble(
@@ -181,5 +303,41 @@ public class LongSummerDays extends JavaPlugin implements Runnable {
 					getConfiguration().getDouble("multipliers.nighttime", 0.5));
 		}
 		return Double.NaN;
+	}
+
+	/**
+	 * @see {@link http://en.wikipedia.org/wiki/Sunrise_equation}
+	 */
+	private double getRealisticMultiplier(long type, double latitude,
+			double longitude) {
+		long julian = (long) (System.currentTimeMillis() - 946684800000L - longitude / 360);
+		double solarNoon = 0.0009 + longitude / 360 + julian;
+		double solarMeanAnomaly = (357.5291 + 0.98560028 * solarNoon) % 360;
+		double center = 1.9148 * Math.sin(solarMeanAnomaly / 180 * Math.PI)
+				+ 0.02 * Math.sin(solarMeanAnomaly / 90 * Math.PI) + 0.0003
+				* Math.sin(solarMeanAnomaly / 60 * Math.PI);
+		double eclipticLongitude = (solarMeanAnomaly + 282.9372 + center) % 360;
+		double transit = solarNoon + 0.0053
+				* Math.sin(solarMeanAnomaly / 180 * Math.PI) - 0.0069
+				* Math.sin(eclipticLongitude / 90 * Math.PI);
+		double declination = Math.asin(Math.sin(eclipticLongitude / 180
+				* Math.PI)
+				* Math.sin(23.45 / 180 * Math.PI));
+		double hourAngle = Math.acos((Math.sin(-0.83 / 180 * Math.PI) - Math
+				.sin(latitude / 180 * Math.PI) * Math.sin(declination))
+				/ (Math.cos(latitude / 180 * Math.PI) * Math.cos(declination)));
+		double set = (0.0009 + (hourAngle / Math.PI / 2 + longitude / 360) - 0.0069 * Math
+				.sin(eclipticLongitude / 90 * Math.PI));
+		double rise = transit - (set - transit);
+		set = set % 1;
+		rise = rise % 1;
+
+		// Whew!
+		double dayMultiplier = (set - rise) * 141; // 10 minutes -> (24 hours - 30 minutes for sunrise and sunset)
+		double sunMultiplier = 10; // Keep this constant at 15 minutes each for now
+		double nightMultiplier = (1 - (set - rise)) * 1410 / 7; // 7 minutes -> (24 hours - 30 minutes for sunrise and sunset)
+
+		return type == SUNRISE || type == SUNSET ? sunMultiplier
+				: (type == DAYTIME ? dayMultiplier : nightMultiplier);
 	}
 }
