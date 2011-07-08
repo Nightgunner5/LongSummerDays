@@ -26,6 +26,7 @@ public class LongSummerDays extends JavaPlugin implements Runnable {
 
 	protected HashMap<String, Long> worlds;
 	protected HashMap<String, Long> leftover;
+	protected HashMap<String, Long> real;
 	protected HashMap<String, Long> fullTicks;
 	protected HashMap<String, Long> specialTicks;
 	protected HashMap<String, Integer> specialMode;
@@ -36,6 +37,7 @@ public class LongSummerDays extends JavaPlugin implements Runnable {
 
 		worlds = new HashMap<String, Long>();
 		leftover = new HashMap<String, Long>();
+		real = new HashMap<String, Long>();
 		specialTicks = new HashMap<String, Long>();
 		specialMode = new HashMap<String, Integer>();
 		for (World world : getServer().getWorlds()) {
@@ -112,13 +114,9 @@ public class LongSummerDays extends JavaPlugin implements Runnable {
 	@Override
 	public void run() {
 		for (World world : getServer().getWorlds()) {
-			if (getConfiguration().getBoolean("redstonefix", true)) {
-				// Was it really this simple? Only people complaining about problems will tell.
-				((CraftWorld) world).getHandle().a(true);
-			}
-
 			if (!worlds.containsKey(world.getName())) {
 				worlds.put(world.getName(), world.getFullTime());
+				real.put(world.getName(), world.getFullTime());
 				continue;
 			}
 			long oldTime = worlds.get(world.getName());
@@ -129,6 +127,19 @@ public class LongSummerDays extends JavaPlugin implements Runnable {
 
 			if (timeDiff == 0) {
 				continue;
+			}
+
+			if (getConfiguration().getBoolean("redstonefix", true)) {
+				if (real.containsKey(world.getName())) {
+					long realTime = real.get(world.getName());
+					long old = world.getFullTime();
+					world.setFullTime(realTime + timeDiff);
+					((CraftWorld) world).getHandle().a(false);
+					real.put(world.getName(), realTime + timeDiff);
+					world.setFullTime(old);
+				} else {
+					real.put(world.getName(), world.getFullTime());
+				}
 			}
 
 			if (timeDiff > THRESHOLD) {
@@ -181,7 +192,7 @@ public class LongSummerDays extends JavaPlugin implements Runnable {
 			}
 			if (isSunrise(oldTime)) {
 				multiplier = getMultiplier(world, SUNRISE);
-				end = date + DAYTIME;
+				end = date + TOMORROW;
 			} else if (isSunset(oldTime)) {
 				multiplier = getMultiplier(world, SUNSET);
 				end = date + NIGHTTIME;
